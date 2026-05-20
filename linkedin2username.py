@@ -149,8 +149,8 @@ class NameMutator():
         Some people have funny names. We assume the most important names are:
         first name, last name, and the name right before the last name (if they have one)
         """
-        # Split on spaces and dashes (included repeated)
-        parsed = re.split(r'[\s-]+', name)
+        # Split on whitespace only; hyphens are part of compound names (e.g. "Jean-Charles")
+        parsed = re.split(r'\s+', name)
 
         # Iterate and remove empty strings
         parsed = [part for part in parsed if part]
@@ -170,61 +170,71 @@ class NameMutator():
 
         return split_name
 
+    @staticmethod
+    def _hyphen_variants(name_part):
+        """Return the full part plus each sub-part if hyphenated.
+
+        Handles cases like 'davidson-smith' -> ['davidson-smith', 'davidson', 'smith']
+        so callers can generate usernames for both the compound form and each component.
+        """
+        if '-' in name_part:
+            return [name_part] + name_part.split('-')
+        return [name_part]
+
     def f_last(self):
         """jsmith"""
         names = set()
-        names.add(self.name['first'][0] + self.name['last'])
-
+        for last in self._hyphen_variants(self.name['last']):
+            names.add(self.name['first'][0] + last)
         if self.name['second']:
-            names.add(self.name['first'][0] + self.name['second'])
-
+            for second in self._hyphen_variants(self.name['second']):
+                names.add(self.name['first'][0] + second)
         return names
 
     def f_dot_last(self):
         """j.smith"""
         names = set()
-        names.add(self.name['first'][0] + '.' + self.name['last'])
-
+        for last in self._hyphen_variants(self.name['last']):
+            names.add(self.name['first'][0] + '.' + last)
         if self.name['second']:
-            names.add(self.name['first'][0] + '.' + self.name['second'])
-
+            for second in self._hyphen_variants(self.name['second']):
+                names.add(self.name['first'][0] + '.' + second)
         return names
 
     def last_f(self):
         """smithj"""
         names = set()
-        names.add(self.name['last'] + self.name['first'][0])
-
+        for last in self._hyphen_variants(self.name['last']):
+            names.add(last + self.name['first'][0])
         if self.name['second']:
-            names.add(self.name['second'] + self.name['first'][0])
-
+            for second in self._hyphen_variants(self.name['second']):
+                names.add(second + self.name['first'][0])
         return names
 
     def first_dot_last(self):
         """john.smith"""
         names = set()
-        names.add(self.name['first'] + '.' + self.name['last'])
-
+        for last in self._hyphen_variants(self.name['last']):
+            names.add(self.name['first'] + '.' + last)
         if self.name['second']:
-            names.add(self.name['first'] + '.' + self.name['second'])
-
+            for second in self._hyphen_variants(self.name['second']):
+                names.add(self.name['first'] + '.' + second)
         return names
 
     def first_l(self):
         """johns"""
         names = set()
-        names.add(self.name['first'] + self.name['last'][0])
-
+        for last in self._hyphen_variants(self.name['last']):
+            names.add(self.name['first'] + last[0])
         if self.name['second']:
-            names.add(self.name['first'] + self.name['second'][0])
-
+            for second in self._hyphen_variants(self.name['second']):
+                names.add(self.name['first'] + second[0])
         return names
 
     def first(self):
         """john"""
         names = set()
         names.add(self.name['first'])
-
         return names
 
 
