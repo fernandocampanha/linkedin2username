@@ -561,6 +561,10 @@ def find_employees(result):
             # There is no first/last name fields anymore so we're taking the full name
             full_name = entity['title']['text'].strip()
 
+            # Skip placeholder profiles with no real name
+            if full_name.lower() == 'linkedin member':
+                continue
+
             # The name may include extras like "Dr" at the start, so we do some basic stripping
             if full_name[:3] == 'Dr ':
                 full_name = full_name[4:]
