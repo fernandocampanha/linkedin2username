@@ -27,7 +27,17 @@ I have not heard of any account bans since the tool was written, but rate limiti
 
 ### Pre-requisites
 
-Install the Python dependencies with `pip3 install -r ./requirements.txt`.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then from the repo root run:
+
+```
+uv sync
+```
+
+This creates a virtual environment and installs all dependencies automatically. Run the tool with:
+
+```
+uv run python linkedin2username.py -c targetco
+```
 
 You'll also need Chrome, Chromium, or Firefox installed in typical paths that can be discovered by Selenium. A web browser will be spawned temporarily to handle the login.
 
