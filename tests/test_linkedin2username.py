@@ -10,6 +10,7 @@ TEST_NAMES = {
     4: "José Gonzáles",
     5: "🙂 Emoji Folks 🙂",
     6: "Jean-Charles Martin",
+    7: "Madonna Wayne Gacey",   # 3-word name: exercises the 'second' field in mutations
 }
 
 
@@ -41,6 +42,11 @@ def test_f_last():
     mutator = NameMutator(name)
     assert mutator.f_last() == set(["jmartin"])
 
+    # 3-word name: second field produces an extra variant using the middle name
+    name = TEST_NAMES[7]
+    mutator = NameMutator(name)
+    assert mutator.f_last() == set(["mgacey", "mwayne"])
+
 
 def test_f_dot_last():
     name = TEST_NAMES[1]
@@ -67,6 +73,10 @@ def test_f_dot_last():
     mutator = NameMutator(name)
     assert mutator.f_dot_last() == set(["j.martin"])
 
+    name = TEST_NAMES[7]
+    mutator = NameMutator(name)
+    assert mutator.f_dot_last() == set(["m.gacey", "m.wayne"])
+
 
 def test_last_f():
     name = TEST_NAMES[1]
@@ -92,6 +102,10 @@ def test_last_f():
     name = TEST_NAMES[6]
     mutator = NameMutator(name)
     assert mutator.last_f() == set(["martinj"])
+
+    name = TEST_NAMES[7]
+    mutator = NameMutator(name)
+    assert mutator.last_f() == set(["gaceym", "waynem"])
 
 
 def test_first_dot_last():
@@ -121,6 +135,10 @@ def test_first_dot_last():
     mutator = NameMutator(name)
     assert mutator.first_dot_last() == set(["jean-charles.martin"])
 
+    name = TEST_NAMES[7]
+    mutator = NameMutator(name)
+    assert mutator.first_dot_last() == set(["madonna.gacey", "madonna.wayne"])
+
 
 def test_first_l():
     name = TEST_NAMES[1]
@@ -149,6 +167,10 @@ def test_first_l():
     mutator = NameMutator(name)
     assert mutator.first_l() == set(["jean-charlesm"])
 
+    name = TEST_NAMES[7]
+    mutator = NameMutator(name)
+    assert mutator.first_l() == set(["madonnag", "madonnaw"])
+
 
 def test_first():
     name = TEST_NAMES[1]
@@ -175,6 +197,17 @@ def test_first():
     name = TEST_NAMES[6]
     mutator = NameMutator(name)
     assert mutator.first() == set(["jean-charles"])
+
+    # 3-word name: first() always returns only the first token regardless of second/last
+    name = TEST_NAMES[7]
+    mutator = NameMutator(name)
+    assert mutator.first() == set(["madonna"])
+
+
+def test_hyphen_variants():
+    assert NameMutator._hyphen_variants("smith") == ["smith"]
+    assert NameMutator._hyphen_variants("davidson-smith") == ["davidson-smith", "davidson", "smith"]
+    assert NameMutator._hyphen_variants("a-b-c") == ["a-b-c", "a", "b", "c"]
 
 
 def test_clean_name():
