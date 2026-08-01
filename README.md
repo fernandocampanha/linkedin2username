@@ -1,19 +1,20 @@
 # linkedin2username
-OSINT Tool: Generate username lists from companies on LinkedIn.
+OSINT Tool: Collect employee profile data from companies on LinkedIn into a CSV file.
 
-This is a pure web-scraper, no API key required. You use your valid LinkedIn username and password to login, it will create several lists of possible username formats for all employees of a company you point it at.
+This is a pure web-scraper, no API key required. You use your valid LinkedIn username and password to login, and it will collect profile data for every employee of a company you point it at, writing everything to a single CSV file.
 
-Here's what you get:
-- first.last.txt: Usernames like Joe.Schmoe
-- f.last.txt:     Usernames like J.Schmoe
-- flast.txt:      Usernames like JSchmoe
-- firstl.txt:     Usernames like JoeS
-- first.txt       Usernames like Joe
-- lastf.txt       Usernames like SchmoeJ
-- rawnames.txt:   Full name like Joe Schmoe
-- metadata.txt    CSV file which is full_name,occupation
+For each employee found, the tool visits their full profile and collects:
+- First and last name
+- LinkedIn profile URL
+- Occupation (as shown in the company's employee search results)
+- Headline
+- About/summary section
+- Work experience (list of "title @ company" entries)
+- Education (list of schools, with degree and field of study when available)
 
-Optionally, the tool will append @domain.xxx to the usernames.
+All of this is written to `<company>-profiles.csv` under the output directory.
+
+Note that collecting full profile details requires one extra HTTP request per employee (on top of the bulk search), so this is slower than a simple username-list scrape and more likely to trigger LinkedIn's rate limiting on large companies. Use `-s/--sleep` to add a delay between requests if needed.
 
 ![](drawing.jpeg)
 
@@ -43,20 +44,19 @@ You'll also need Chrome, Chromium, or Firefox installed in typical paths that ca
 
 ### Full usage
 ```
-usage: linkedin2username.py [-h] -c COMPANY [-n DOMAIN] [-d DEPTH]
+usage: linkedin2username.py [-h] -c COMPANY [-d DEPTH]
   [-s SLEEP] [-x PROXY] [-k KEYWORDS] [-g] [-o OUTPUT]
 
-OSINT tool to generate lists of probable usernames from a given company's LinkedIn page.
-This tool may break when LinkedIn changes their site.
+OSINT tool to collect LinkedIn profile information for employees of a given
+company into a CSV file. This tool may break when LinkedIn changes their site.
 Please open issues on GitHub to report any inconsistencies.
 
 optional arguments:
   -h, --help            show this help message and exit
   -c COMPANY, --company COMPANY
                         Company name exactly as typed in the company linkedin profile page URL.
-  -n DOMAIN, --domain DOMAIN
-                        Append a domain name to username output.
-                        [example: "-n targetco.com" would output jschmoe@targetco.com]
+                        If this points to an existing file instead, it is treated as a list of
+                        company names (one per line) to search in sequence.
   -d DEPTH, --depth DEPTH
                         Search depth (how many loops of 25). If unset, will try to grab them
                         all.
@@ -86,11 +86,32 @@ Here's an example to pull all employees of targetco:
 $ python linkedin2username.py -c targetco
 ```
 
-Here's an example to pull a shorter list and append the domain name @targetco.com to them:
+Here's an example to pull a shorter list, limiting the search depth:
 
 ```
-$ python linkedin2username.py -c targetco -d 5 -n 'targetco.com'
+$ python linkedin2username.py -c targetco -d 5
 ```
+
+### Searching multiple companies from a file
+
+If `-c/--company` points to an existing file instead of a company name, it is treated as a
+list of company names (one per line, blank lines and `#` comments ignored). You'll only be
+prompted to log in once, and the tool will loop through every company in the file:
+
+```
+$ cat companies.txt
+targetco
+othertargetco
+# this line is a comment and is ignored
+thirdtargetco
+
+$ python linkedin2username.py -c companies.txt
+```
+
+Each company gets its own subdirectory under the output directory, e.g.
+`li2u-output/targetco/targetco-profiles.csv`. If a company in the list can't be found or a
+lookup fails, that company is skipped (with the error logged) and the tool moves on to the
+next one, printing a summary of successes/failures at the end.
 
 ### Tips
 

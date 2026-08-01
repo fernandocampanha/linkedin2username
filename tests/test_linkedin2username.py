@@ -1,250 +1,44 @@
+import json
+
 import linkedin2username
-from linkedin2username import NameMutator
-
-# Test name mutations
-
-TEST_NAMES = {
-    1: "John Smith",
-    2: "John Davidson-Smith",
-    3: "John-Paul Smith-Robinson",
-    4: "José Gonzáles",
-    5: "🙂 Emoji Folks 🙂",
-    6: "Jean-Charles Martin",
-    7: "Madonna Wayne Gacey",   # 3-word name: exercises the 'second' field in mutations
-}
-
-
-def test_f_last():
-    name = TEST_NAMES[1]
-    mutator = NameMutator(name)
-    assert mutator.f_last() == set(["jsmith"])
-
-    # Hyphenated last: compound form + each part
-    name = TEST_NAMES[2]
-    mutator = NameMutator(name)
-    assert mutator.f_last() == set(["jdavidson-smith", "jdavidson", "jsmith"])
-
-    # Hyphenated first and last: compound last + each last part; first stays compound
-    name = TEST_NAMES[3]
-    mutator = NameMutator(name)
-    assert mutator.f_last() == set(["jsmith-robinson", "jsmith", "jrobinson"])
-
-    name = TEST_NAMES[4]
-    mutator = NameMutator(name)
-    assert mutator.f_last() == set(["jgonzales"])
-
-    name = TEST_NAMES[5]
-    mutator = NameMutator(name)
-    assert mutator.f_last() == set(["efolks"])
-
-    # Compound hyphenated first name: jean-charles.martin must be generated (issue #82)
-    name = TEST_NAMES[6]
-    mutator = NameMutator(name)
-    assert mutator.f_last() == set(["jmartin"])
-
-    # 3-word name: second field produces an extra variant using the middle name
-    name = TEST_NAMES[7]
-    mutator = NameMutator(name)
-    assert mutator.f_last() == set(["mgacey", "mwayne"])
-
-
-def test_f_dot_last():
-    name = TEST_NAMES[1]
-    mutator = NameMutator(name)
-    assert mutator.f_dot_last() == set(["j.smith"])
-
-    name = TEST_NAMES[2]
-    mutator = NameMutator(name)
-    assert mutator.f_dot_last() == set(["j.davidson-smith", "j.davidson", "j.smith"])
-
-    name = TEST_NAMES[3]
-    mutator = NameMutator(name)
-    assert mutator.f_dot_last() == set(["j.smith-robinson", "j.smith", "j.robinson"])
-
-    name = TEST_NAMES[4]
-    mutator = NameMutator(name)
-    assert mutator.f_dot_last() == set(["j.gonzales"])
-
-    name = TEST_NAMES[5]
-    mutator = NameMutator(name)
-    assert mutator.f_dot_last() == set(["e.folks"])
-
-    name = TEST_NAMES[6]
-    mutator = NameMutator(name)
-    assert mutator.f_dot_last() == set(["j.martin"])
-
-    name = TEST_NAMES[7]
-    mutator = NameMutator(name)
-    assert mutator.f_dot_last() == set(["m.gacey", "m.wayne"])
-
-
-def test_last_f():
-    name = TEST_NAMES[1]
-    mutator = NameMutator(name)
-    assert mutator.last_f() == set(["smithj"])
-
-    name = TEST_NAMES[2]
-    mutator = NameMutator(name)
-    assert mutator.last_f() == set(["davidson-smithj", "davidsonj", "smithj"])
-
-    name = TEST_NAMES[3]
-    mutator = NameMutator(name)
-    assert mutator.last_f() == set(["smith-robinsonj", "smithj", "robinsonj"])
-
-    name = TEST_NAMES[4]
-    mutator = NameMutator(name)
-    assert mutator.last_f() == set(["gonzalesj"])
-
-    name = TEST_NAMES[5]
-    mutator = NameMutator(name)
-    assert mutator.last_f() == set(["folkse"])
-
-    name = TEST_NAMES[6]
-    mutator = NameMutator(name)
-    assert mutator.last_f() == set(["martinj"])
-
-    name = TEST_NAMES[7]
-    mutator = NameMutator(name)
-    assert mutator.last_f() == set(["gaceym", "waynem"])
-
-
-def test_first_dot_last():
-    name = TEST_NAMES[1]
-    mutator = NameMutator(name)
-    assert mutator.first_dot_last() == set(["john.smith"])
-
-    name = TEST_NAMES[2]
-    mutator = NameMutator(name)
-    assert mutator.first_dot_last() == set(["john.davidson-smith", "john.davidson", "john.smith"])
-
-    # Compound first name is preserved intact; last name variants are expanded
-    name = TEST_NAMES[3]
-    mutator = NameMutator(name)
-    assert mutator.first_dot_last() == set(["john-paul.smith-robinson", "john-paul.smith", "john-paul.robinson"])
-
-    name = TEST_NAMES[4]
-    mutator = NameMutator(name)
-    assert mutator.first_dot_last() == set(["jose.gonzales"])
-
-    name = TEST_NAMES[5]
-    mutator = NameMutator(name)
-    assert mutator.first_dot_last() == set(["emoji.folks"])
-
-    # The core fix for issue #82: compound first name generates the correct username
-    name = TEST_NAMES[6]
-    mutator = NameMutator(name)
-    assert mutator.first_dot_last() == set(["jean-charles.martin"])
-
-    name = TEST_NAMES[7]
-    mutator = NameMutator(name)
-    assert mutator.first_dot_last() == set(["madonna.gacey", "madonna.wayne"])
-
-
-def test_first_l():
-    name = TEST_NAMES[1]
-    mutator = NameMutator(name)
-    assert mutator.first_l() == set(["johns"])
-
-    # davidson-smith[0]='d', davidson[0]='d' (dup), smith[0]='s'
-    name = TEST_NAMES[2]
-    mutator = NameMutator(name)
-    assert mutator.first_l() == set(["johnd", "johns"])
-
-    # smith-robinson[0]='s', smith[0]='s' (dup), robinson[0]='r'
-    name = TEST_NAMES[3]
-    mutator = NameMutator(name)
-    assert mutator.first_l() == set(["john-pauls", "john-paulr"])
-
-    name = TEST_NAMES[4]
-    mutator = NameMutator(name)
-    assert mutator.first_l() == set(["joseg"])
-
-    name = TEST_NAMES[5]
-    mutator = NameMutator(name)
-    assert mutator.first_l() == set(["emojif"])
-
-    name = TEST_NAMES[6]
-    mutator = NameMutator(name)
-    assert mutator.first_l() == set(["jean-charlesm"])
-
-    name = TEST_NAMES[7]
-    mutator = NameMutator(name)
-    assert mutator.first_l() == set(["madonnag", "madonnaw"])
-
-
-def test_first():
-    name = TEST_NAMES[1]
-    mutator = NameMutator(name)
-    assert mutator.first() == set(["john"])
-
-    name = TEST_NAMES[2]
-    mutator = NameMutator(name)
-    assert mutator.first() == set(["john"])
-
-    # Compound first name is preserved intact
-    name = TEST_NAMES[3]
-    mutator = NameMutator(name)
-    assert mutator.first() == set(["john-paul"])
-
-    name = TEST_NAMES[4]
-    mutator = NameMutator(name)
-    assert mutator.first() == set(["jose"])
-
-    name = TEST_NAMES[5]
-    mutator = NameMutator(name)
-    assert mutator.first() == set(["emoji"])
-
-    name = TEST_NAMES[6]
-    mutator = NameMutator(name)
-    assert mutator.first() == set(["jean-charles"])
-
-    # 3-word name: first() always returns only the first token regardless of second/last
-    name = TEST_NAMES[7]
-    mutator = NameMutator(name)
-    assert mutator.first() == set(["madonna"])
-
-
-def test_hyphen_variants():
-    assert NameMutator._hyphen_variants("smith") == ["smith"]
-    assert NameMutator._hyphen_variants("davidson-smith") == ["davidson-smith", "davidson", "smith"]
-    assert NameMutator._hyphen_variants("a-b-c") == ["a-b-c", "a", "b", "c"]
-
-
-def test_clean_name():
-    mutator = NameMutator("xxx")
-    assert mutator.clean_name("  🙂Ànèôõö    ßï🙂  ") == "aneooo ssi"
-
-    name = "Dr. Hannibal Lecter, PhD."
-    assert mutator.clean_name(name) == "hannibal lecter"
-
-    name = "Mr. Fancy Pants MD, PhD, MBA"
-    assert mutator.clean_name(name) == "fancy pants"
-
-    name = "Mr. Cert Dude (OSCP, OSCE)"
-    assert mutator.clean_name(name) == "cert dude"
+from linkedin2username import (
+    split_name,
+    read_company_list,
+    extract_public_id,
+    get_profile_details,
+    write_files,
+)
 
 
 def test_split_name():
-    mutator = NameMutator("xxx")
+    assert split_name("John Smith") == {"first": "John", "last": "Smith"}
+    assert split_name("Madonna Wayne Gacey") == {"first": "Madonna", "last": "Wayne Gacey"}
+    assert split_name("Twiggy") == {"first": "Twiggy", "last": ""}
+    assert split_name("  John   Davidson-Smith  ") == {"first": "John", "last": "Davidson-Smith"}
+    assert split_name("") == {"first": "", "last": ""}
 
-    name = "madonna wayne gacey"
-    assert mutator.split_name(name) == {"first": "madonna", "second": "wayne", "last": "gacey"}
 
-    name = "twiggy ramirez"
-    assert mutator.split_name(name) == {"first": "twiggy", "second": "", "last": "ramirez"}
+def test_read_company_list_single_name():
+    # No file with this name exists, so it's treated as a single company name.
+    assert read_company_list("targetco") == ["targetco"]
 
-    name = "brian warner is marilyn manson"
-    assert mutator.split_name(name) == {"first": "brian", "second": "marilyn", "last": "manson"}
 
-    # Hyphens within a name segment are preserved (not treated as word separators)
-    name = "jean-charles martin"
-    assert mutator.split_name(name) == {"first": "jean-charles", "second": "", "last": "martin"}
+def test_read_company_list_from_file(tmp_path):
+    company_file = tmp_path / "companies.txt"
+    company_file.write_text(
+        "empresa-a\n\n# a comment line\nempresa-b\n  empresa-c  \n"
+    )
+    assert read_company_list(str(company_file)) == ["empresa-a", "empresa-b", "empresa-c"]
 
-    name = "john davidson-smith"
-    assert mutator.split_name(name) == {"first": "john", "second": "", "last": "davidson-smith"}
 
-    name = "john-paul smith-robinson"
-    assert mutator.split_name(name) == {"first": "john-paul", "second": "", "last": "smith-robinson"}
+def test_read_company_list_empty_file_exits(tmp_path):
+    company_file = tmp_path / "empty.txt"
+    company_file.write_text("\n# only a comment\n\n")
+    try:
+        read_company_list(str(company_file))
+        assert False, "expected SystemExit for an empty company list file"
+    except SystemExit:
+        pass
 
 
 def test_find_employees():
@@ -253,10 +47,109 @@ def test_find_employees():
     employees = linkedin2username.find_employees(result)
 
     assert len(employees) == 2
-    assert employees[0] == {'full_name': 'Michael Myers', 'occupation': 'Camp Counsellor'}
-    assert employees[1] == {'full_name': 'Freddy Krueger', 'occupation': 'Babysitter'}
+    assert employees[0]['full_name'] == 'Michael Myers'
+    assert employees[0]['occupation'] == 'Camp Counsellor'
+    assert 'profile_url' in employees[0]
+    assert employees[1]['full_name'] == 'Freddy Krueger'
+    assert employees[1]['occupation'] == 'Babysitter'
 
     with open("tests/mock-employee-response-last-page", "r") as infile:
         result = infile.read()
     assert not linkedin2username.find_employees(result)
 
+
+def test_extract_public_id():
+    assert extract_public_id("https://www.linkedin.com/in/some-name/") == "some-name"
+    assert extract_public_id("https://www.linkedin.com/in/some-name") == "some-name"
+    assert extract_public_id("https://www.linkedin.com/in/some-name?trk=xyz") == "some-name"
+    assert extract_public_id("") == ""
+    assert extract_public_id("https://www.linkedin.com/company/targetco/") == ""
+
+
+class FakeResponse:
+    def __init__(self, status_code=200, text=""):
+        self.status_code = status_code
+        self.text = text
+
+
+class FakeSession:
+    def __init__(self, response):
+        self.response = response
+        self.last_url = None
+
+    def get(self, url):
+        self.last_url = url
+        return self.response
+
+
+def test_get_profile_details_parses_included_elements():
+    profile_payload = {
+        "included": [
+            {
+                "$type": "com.linkedin.voyager.identity.profile.Profile",
+                "headline": "Geomarketing Analyst",
+                "summary": "Passionate about spatial data.",
+            },
+            {
+                "$type": "com.linkedin.voyager.identity.profile.Position",
+                "title": "Analyst",
+                "companyName": "TargetCo",
+            },
+            {
+                "$type": "com.linkedin.voyager.identity.profile.Position",
+                "title": "Intern",
+                "companyName": "OtherCo",
+            },
+            {
+                "$type": "com.linkedin.voyager.identity.profile.Education",
+                "schoolName": "State University",
+                "degreeName": "BSc",
+                "fieldOfStudy": "Geography",
+            },
+        ]
+    }
+    session = FakeSession(FakeResponse(200, json.dumps(profile_payload)))
+    details = get_profile_details(session, "some-name")
+
+    assert details['headline'] == "Geomarketing Analyst"
+    assert details['about'] == "Passionate about spatial data."
+    assert details['companies'] == ["Analyst @ TargetCo", "Intern @ OtherCo"]
+    assert details['schools'] == ["State University (BSc, Geography)"]
+
+
+def test_get_profile_details_handles_bad_http_status():
+    session = FakeSession(FakeResponse(404, ""))
+    details = get_profile_details(session, "missing-profile")
+    assert details == {'headline': '', 'about': '', 'companies': [], 'schools': []}
+
+
+def test_get_profile_details_handles_bad_json():
+    session = FakeSession(FakeResponse(200, "not json"))
+    details = get_profile_details(session, "some-name")
+    assert details == {'headline': '', 'about': '', 'companies': [], 'schools': []}
+
+
+def test_write_files_creates_csv_with_expected_columns(tmp_path):
+    employees = [
+        {
+            'full_name': 'John Smith',
+            'occupation': 'Analyst',
+            'profile_url': 'https://www.linkedin.com/in/john-smith/',
+            'headline': 'Geomarketing Analyst at TargetCo',
+            'about': 'Loves maps.',
+            'companies': ['Analyst @ TargetCo', 'Intern @ OtherCo'],
+            'schools': ['State University (BSc, Geography)'],
+        },
+    ]
+
+    write_files('targetco', employees, str(tmp_path))
+
+    csv_path = tmp_path / 'targetco' / 'targetco-profiles.csv'
+    assert csv_path.exists()
+
+    content = csv_path.read_text(encoding='utf-8')
+    assert 'first_name,last_name,profile_url,occupation,headline,about,companies,schools' in content
+    assert 'John' in content
+    assert 'Smith' in content
+    assert 'Analyst @ TargetCo; Intern @ OtherCo' in content
+    assert 'State University (BSc, Geography)' in content

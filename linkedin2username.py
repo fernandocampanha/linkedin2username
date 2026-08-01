@@ -3,9 +3,10 @@
 """
 linkedin2username by initstring (github.com/initstring)
 
-OSINT tool to discover likely usernames and email addresses for employees
-of a given company on LinkedIn. This tool actually logs in with your valid
-account in order to extract the most results.
+OSINT tool to collect LinkedIn profile data (name, profile URL, occupation,
+headline, about, work experience, and education) for employees of a given
+company into a CSV file. This tool actually logs in with your valid account
+in order to extract the most results.
 """
 
 import os
@@ -13,6 +14,7 @@ import sys
 import re
 import time
 import argparse
+import csv
 import json
 import urllib.parse
 import requests
@@ -30,7 +32,7 @@ BANNER = r"""
                             |____/__\_______ \____/
                                linkedin2username
 
-                                   Spray away.
+                              Profile data away.
                               github.com/initstring
 
 """
@@ -88,175 +90,69 @@ GEO_REGIONS = {
 }
 
 
-class NameMutator():
+def split_name(full_name):
     """
-    This class handles all name mutations.
+    Takes a full name (string) and splits it into first/last name parts.
 
-    Init with a raw name, and then call the individual functions to return a mutation.
+    Some people have funny names. We assume the most important names are:
+    first name and the last name (everything after the first token is
+    joined back together as the last name, so compound/hyphenated and
+    multi-word last names are preserved as typed).
     """
-    def __init__(self, name):
-        self.name = self.clean_name(name)
-        self.name = self.split_name(self.name)
+    # Split on whitespace only; hyphens are part of compound names (e.g. "Jean-Charles")
+    parsed = [part for part in re.split(r'\s+', full_name.strip()) if part]
 
-    @staticmethod
-    def clean_name(name):
-        """
-        Removes common punctuation.
+    if not parsed:
+        return {'first': '', 'last': ''}
 
-        LinkedIn users tend to add credentials to their names to look special.
-        This function is based on what I have seen in large searches, and attempts
-        to remove them.
-        """
-        # Lower-case everything to make it easier to de-duplicate.
-        name = name.lower()
+    if len(parsed) == 1:
+        return {'first': parsed[0], 'last': ''}
 
-        # Use case for tool is mostly standard English, try to standardize common non-English
-        # characters.
-        name = re.sub("[àáâãäå]", 'a', name)
-        name = re.sub("[èéêë]", 'e', name)
-        name = re.sub("[ìíîï]", 'i', name)
-        name = re.sub("[òóôõö]", 'o', name)
-        name = re.sub("[ùúûü]", 'u', name)
-        name = re.sub("[ýÿ]", 'y', name)
-        name = re.sub("[ß]", 'ss', name)
-        name = re.sub("[ñ]", 'n', name)
+    return {'first': parsed[0], 'last': ' '.join(parsed[1:])}
 
-        # Get rid of all things in parenthesis. Lots of people put various credentials, etc
-        name = re.sub(r'\([^()]*\)', '', name)
 
-        # The lines below basically trash anything weird left over.
-        # A lot of users have funny things in their names, like () or ''
-        # People like to feel special, I guess.
-        allowed_chars = re.compile('[^a-zA-Z -]')
-        name = allowed_chars.sub('', name)
+def read_company_list(company_arg):
+    """
+    Resolves the -c/--company argument into a list of company names.
 
-        # Next, we get rid of common titles. Thanks ChatGPT for the help.
-        titles = ['mr', 'miss', 'mrs', 'phd', 'prof', 'professor', 'md', 'dr', 'mba']
-        pattern = "\\b(" + "|".join(titles) + ")\\b"
-        name = re.sub(pattern, '', name)
+    If the argument points to an existing file, reads it as one company
+    name per line (blank lines and '#' comments ignored). Otherwise, the
+    argument is treated as a single company name.
+    """
+    if not os.path.isfile(company_arg):
+        return [company_arg]
 
-        # The line below tries to consolidate white space between words
-        # and get rid of leading/trailing spaces.
-        name = re.sub(r'\s+', ' ', name).strip()
+    with open(company_arg, 'r', encoding='utf-8') as infile:
+        companies = [
+            line.strip() for line in infile
+            if line.strip() and not line.strip().startswith('#')
+        ]
 
-        return name
+    if not companies:
+        print(f"[!] The file {company_arg} was found but contains no company names. Exiting.")
+        sys.exit()
 
-    @staticmethod
-    def split_name(name):
-        """
-        Takes a name (string) and returns a list of individual name-parts (dict).
-
-        Some people have funny names. We assume the most important names are:
-        first name, last name, and the name right before the last name (if they have one)
-        """
-        # Split on whitespace only; hyphens are part of compound names (e.g. "Jean-Charles")
-        parsed = re.split(r'\s+', name)
-
-        # Iterate and remove empty strings
-        parsed = [part for part in parsed if part]
-
-        # Discard people without at least a first and last name
-        if len(parsed) < 2:
-            return None
-
-        if len(parsed) > 2:
-            split_name = {'first': parsed[0], 'second': parsed[-2], 'last': parsed[-1]}
-        else:
-            split_name = {'first': parsed[0], 'second': '', 'last': parsed[-1]}
-
-        # Final sanity check to not proceed without first and last name
-        if not split_name['first'] or not split_name['last']:
-            return None
-
-        return split_name
-
-    @staticmethod
-    def _hyphen_variants(name_part):
-        """Return the full part plus each sub-part if hyphenated.
-
-        Handles cases like 'davidson-smith' -> ['davidson-smith', 'davidson', 'smith']
-        so callers can generate usernames for both the compound form and each component.
-        """
-        if '-' in name_part:
-            return [name_part] + name_part.split('-')
-        return [name_part]
-
-    def f_last(self):
-        """jsmith"""
-        names = set()
-        for last in self._hyphen_variants(self.name['last']):
-            names.add(self.name['first'][0] + last)
-        if self.name['second']:
-            for second in self._hyphen_variants(self.name['second']):
-                names.add(self.name['first'][0] + second)
-        return names
-
-    def f_dot_last(self):
-        """j.smith"""
-        names = set()
-        for last in self._hyphen_variants(self.name['last']):
-            names.add(self.name['first'][0] + '.' + last)
-        if self.name['second']:
-            for second in self._hyphen_variants(self.name['second']):
-                names.add(self.name['first'][0] + '.' + second)
-        return names
-
-    def last_f(self):
-        """smithj"""
-        names = set()
-        for last in self._hyphen_variants(self.name['last']):
-            names.add(last + self.name['first'][0])
-        if self.name['second']:
-            for second in self._hyphen_variants(self.name['second']):
-                names.add(second + self.name['first'][0])
-        return names
-
-    def first_dot_last(self):
-        """john.smith"""
-        names = set()
-        for last in self._hyphen_variants(self.name['last']):
-            names.add(self.name['first'] + '.' + last)
-        if self.name['second']:
-            for second in self._hyphen_variants(self.name['second']):
-                names.add(self.name['first'] + '.' + second)
-        return names
-
-    def first_l(self):
-        """johns"""
-        names = set()
-        for last in self._hyphen_variants(self.name['last']):
-            names.add(self.name['first'] + last[0])
-        if self.name['second']:
-            for second in self._hyphen_variants(self.name['second']):
-                names.add(self.name['first'] + second[0])
-        return names
-
-    def first(self):
-        """john"""
-        names = set()
-        names.add(self.name['first'])
-        return names
+    return companies
 
 
 def parse_arguments():
     """
     Handle user-supplied arguments
     """
-    desc = ('OSINT tool to generate lists of probable usernames from a'
-            ' given company\'s LinkedIn page. This tool may break when'
-            ' LinkedIn changes their site. Please open issues on GitHub'
-            ' to report any inconsistencies, and they will be quickly fixed.')
+    desc = ('OSINT tool to collect LinkedIn profile information (name, '
+            'headline, current title, about/summary, work experience, and '
+            'education) for employees of a given company into a CSV file. '
+            'This tool may break when LinkedIn changes their site. Please '
+            'open issues on GitHub to report any inconsistencies, and they '
+            'will be quickly fixed.')
     parser = argparse.ArgumentParser(description=desc)
 
     parser.add_argument('-c', '--company', type=str, action='store',
                         required=True,
                         help='Company name exactly as typed in the company '
-                        'linkedin profile page URL.')
-    parser.add_argument('-n', '--domain', type=str, action='store',
-                        default='',
-                        help='Append a domain name to username output. '
-                        '[example: "-n uber.com" would output jschmoe@uber.com]'
-                        )
+                        'linkedin profile page URL. If this points to an '
+                        'existing file instead, it is treated as a list of '
+                        'company names (one per line) to search in sequence.')
     parser.add_argument('-d', '--depth', type=int, action='store',
                         default=False,
                         help='Search depth (how many loops of 50). If unset, '
@@ -284,12 +180,12 @@ def parse_arguments():
 
     args = parser.parse_args()
 
+    # If -c/--company points to an existing file, treat it as a list of
+    # companies (one per line) instead of a single company name.
+    args.companies = read_company_list(args.company)
+
     # Proxy argument is fed to requests as a dictionary, setting this now:
     args.proxy_dict = {"https": args.proxy}
-
-    # If appending an email address, preparing this string now:
-    if args.domain:
-        args.domain = '@' + args.domain
 
     # Keywords are fed in as a list. Splitting comma-separated user input now:
     if args.keywords:
@@ -365,6 +261,10 @@ def set_csrf_token(session):
     return session
 
 
+class CompanyLookupError(Exception):
+    """Raised when a company's basic info cannot be retrieved from LinkedIn."""
+
+
 def get_company_info(name, session):
     """Scrapes basic company info.
 
@@ -379,35 +279,37 @@ def get_company_info(name, session):
                             'q=universalName&universalName=' + escaped_name))
 
     if response.status_code == 404:
-        print("[!] Could not find that company name. Please double-check LinkedIn and try again.")
-        sys.exit()
+        raise CompanyLookupError(
+            "Could not find that company name. Please double-check LinkedIn and try again.")
 
     if response.status_code != 200:
-        print("[!] Unexpected HTTP response code when trying to get the company info:")
-        print(f"    {response.status_code}")
-        sys.exit()
+        raise CompanyLookupError(
+            f"Unexpected HTTP response code when trying to get the company info: {response.status_code}")
 
     # Some geo regions are being fed a 'lite' version of LinkedIn mobile:
     # https://bit.ly/2vGcft0
     # The following bit is a temporary fix until I can figure out a
     # low-maintenance solution that is inclusive of these areas.
     if 'mwlite' in response.text:
-        print("[!] You are being served the 'lite' version of"
-              " LinkedIn (https://bit.ly/2vGcft0) that is not yet supported"
-              " by this tool. Please try again using a VPN exiting from USA,"
-              " EU, or Australia.")
-        print("    A permanent fix is being researched. Sorry about that!")
-        sys.exit()
+        raise CompanyLookupError(
+            "You are being served the 'lite' version of LinkedIn"
+            " (https://bit.ly/2vGcft0) that is not yet supported by this"
+            " tool. Please try again using a VPN exiting from USA, EU, or"
+            " Australia.")
 
     try:
         response_json = json.loads(response.text)
-    except json.decoder.JSONDecodeError:
-        print("[!] Yikes! Could not decode JSON when getting company info! :(")
-        print("Here's the first 200 characters of the HTTP reply which may help in debugging:\n\n")
-        print(response.text[:200])
-        sys.exit()
+    except json.decoder.JSONDecodeError as exc:
+        raise CompanyLookupError(
+            "Yikes! Could not decode JSON when getting company info! :(\n"
+            "Here's the first 200 characters of the HTTP reply which may help in debugging:\n\n"
+            + response.text[:200]) from exc
 
-    company = response_json["elements"][0]
+    try:
+        company = response_json["elements"][0]
+    except (KeyError, IndexError) as exc:
+        raise CompanyLookupError(
+            "Yikes! No company data found in the response for this name.") from exc
 
     found_name = company.get('name', "NOT FOUND")
     found_desc = company.get('tagline', "NOT FOUND")
@@ -582,9 +484,90 @@ def find_employees(result):
             # Some users are missing a primary subtitle
             occupation = entity.get('primarySubtitle', {}).get('text', '') if entity.get('primarySubtitle') else ''
 
-            found_employees.append({'full_name': full_name, 'occupation': occupation})
+            # The public profile URL (e.g. https://www.linkedin.com/in/some-name/) is
+            # what we need to look up full profile details (experience, education).
+            profile_url = entity.get('navigationUrl', '') or ''
+
+            found_employees.append({
+                'full_name': full_name,
+                'occupation': occupation,
+                'profile_url': profile_url,
+            })
 
     return found_employees
+
+
+def extract_public_id(profile_url):
+    """
+    Extracts the public identifier (the slug after /in/) from a LinkedIn
+    profile URL, e.g. 'https://www.linkedin.com/in/some-name/' -> 'some-name'.
+
+    Returns an empty string if no identifier could be extracted.
+    """
+    if not profile_url:
+        return ''
+
+    match = re.search(r'/in/([^/?]+)', profile_url)
+    return match.group(1) if match else ''
+
+
+def get_profile_details(session, public_id):
+    """
+    Fetches and parses the full profile view for a single employee.
+
+    This hits a different, more detailed endpoint than the company search
+    (one HTTP request per profile), since work experience and education are
+    not included in the bulk search results. Like the rest of this tool,
+    this relies on an undocumented LinkedIn API and may need adjustment if
+    the response shape changes - parsing here is deliberately defensive.
+
+    Returns a dict with headline, about/summary, a list of past companies,
+    and a list of schools. Any field that can't be found is left empty/[].
+    """
+    details = {'headline': '', 'about': '', 'companies': [], 'schools': []}
+
+    url = f'https://www.linkedin.com/voyager/api/identity/profiles/{public_id}/profileView'
+    response = session.get(url)
+
+    if response.status_code != 200:
+        print(f"\n[!] Could not fetch profile details for '{public_id}'"
+              f" (HTTP {response.status_code}). Leaving those fields blank.")
+        return details
+
+    try:
+        profile_json = json.loads(response.text)
+    except json.decoder.JSONDecodeError:
+        print(f"\n[!] Could not decode JSON for profile '{public_id}'. Leaving those fields blank.")
+        return details
+
+    included = profile_json.get('included', [])
+
+    for element in included:
+        element_type = element.get('$type', '')
+
+        # The main profile card has the headline and the 'about' summary.
+        if element_type.endswith('identity.profile.Profile'):
+            details['headline'] = element.get('headline', '') or ''
+            details['about'] = element.get('summary', '') or ''
+
+        # Each past/current position shows up as its own element.
+        elif element_type.endswith('identity.profile.Position'):
+            company_name = element.get('companyName', '') or ''
+            title = element.get('title', '') or ''
+            if company_name or title:
+                details['companies'].append(f"{title} @ {company_name}".strip(' @'))
+
+        # Each school/degree shows up as its own element.
+        elif element_type.endswith('identity.profile.Education'):
+            school_name = element.get('schoolName', '') or ''
+            degree_name = element.get('degreeName', '') or ''
+            field_of_study = element.get('fieldOfStudy', '') or ''
+            school_desc = ', '.join(part for part in [degree_name, field_of_study] if part)
+            entry = f"{school_name} ({school_desc})" if school_desc else school_name
+            if entry:
+                details['schools'].append(entry)
+
+    return details
 
 
 def do_loops(session, company_id, outer_loops, args):
@@ -666,61 +649,105 @@ def do_loops(session, company_id, outer_loops, args):
     return employee_list
 
 
-def write_lines(employees, name_func, domain, outfile):
+def enrich_employees(session, employee_list, sleep):
     """
-    Helper function to mutate names and write to an outfile
+    Fetches full profile details (headline, about, experience, education)
+    for each employee already found via the bulk search.
 
-    Needs to be called with a string variable in name_func that matches the class method
-    name in the NameMutator class.
+    This is one extra HTTP request per employee, so it is much slower than
+    the bulk search and more likely to hit rate limiting. Failures for a
+    single profile are logged and leave that employee's detail fields
+    blank rather than aborting the whole run. Ctrl-C stops enrichment early,
+    keeping whatever detail was already collected.
     """
-    for employee in employees:
-        mutator = NameMutator(employee["full_name"])
-        if mutator.name:
-            for name in getattr(mutator, name_func)():
-                outfile.write(name + domain + '\n')
+    total = len(employee_list)
+
+    try:
+        for index, employee in enumerate(employee_list, start=1):
+            sys.stdout.flush()
+            sys.stdout.write(f"[*] Fetching profile details {index}/{total}...    \r")
+
+            public_id = extract_public_id(employee.get('profile_url', ''))
+            if not public_id:
+                employee.update({'headline': '', 'about': '', 'companies': [], 'schools': []})
+                continue
+
+            employee.update(get_profile_details(session, public_id))
+
+            time.sleep(sleep)
+    except KeyboardInterrupt:
+        print("\n\n[!] Caught Ctrl-C. Stopping profile detail collection early.")
+
+    sys.stdout.write('\n')
+    return employee_list
 
 
-def write_files(company, domain, employees, out_dir):
-    """Writes data to various formatted output files.
+CSV_FIELDNAMES = [
+    'first_name', 'last_name', 'profile_url', 'occupation',
+    'headline', 'about', 'companies', 'schools',
+]
 
-    After scraping and processing is complete, this function formats the raw
-    names into common username formats and writes them into a directory called
-    li2u-output unless specified.
 
-    See in-line comments for decisions made on handling special cases.
+def write_files(company, employees, out_dir):
+    """Writes collected profile data to a CSV file.
+
+    After scraping and profile enrichment is complete, this function writes
+    one row per employee into a CSV inside a subdirectory named after the
+    company. When multiple companies are searched in a single run, each
+    company gets its own subdirectory under out_dir.
     """
+    out_dir = os.path.join(out_dir, company)
 
-    # Check for and create an output directory to store the files.
+    # Check for and create an output directory to store the file.
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
-    # Write out all the raw and mutated names to files
-    with open(f'{out_dir}/{company}-rawnames.txt', 'w', encoding='utf-8') as outfile:
+    with open(f'{out_dir}/{company}-profiles.csv', 'w', newline='', encoding='utf-8') as outfile:
+        writer = csv.DictWriter(outfile, fieldnames=CSV_FIELDNAMES)
+        writer.writeheader()
+
         for employee in employees:
-            outfile.write(employee['full_name'] + '\n')
+            name_parts = split_name(employee['full_name'])
+            writer.writerow({
+                'first_name': name_parts['first'],
+                'last_name': name_parts['last'],
+                'profile_url': employee.get('profile_url', ''),
+                'occupation': employee.get('occupation', ''),
+                'headline': employee.get('headline', ''),
+                'about': employee.get('about', ''),
+                'companies': '; '.join(employee.get('companies', [])),
+                'schools': '; '.join(employee.get('schools', [])),
+            })
 
-    with open(f'{out_dir}/{company}-metadata.txt', 'w', encoding='utf-8') as outfile:
-        outfile.write('full_name,occupation\n')
-        for employee in employees:
-            outfile.write(employee['full_name'] + ',' + employee["occupation"] + '\n')
 
-    with open(f'{out_dir}/{company}-flast.txt', 'w', encoding='utf-8') as outfile:
-        write_lines(employees, 'f_last', domain, outfile)
+def process_company(company, session, args):
+    """
+    Runs the full lookup/search/enrich/write pipeline for a single company.
 
-    with open(f'{out_dir}/{company}-f.last.txt', 'w', encoding='utf-8') as outfile:
-        write_lines(employees, 'f_dot_last', domain, outfile)
+    Raises CompanyLookupError if the company info cannot be retrieved.
+    Returns the number of employees found and written.
+    """
+    # The base depth/geoblast requested by the user is re-applied per
+    # company, since set_inner_loops() may mutate them based on staff count.
+    company_args = argparse.Namespace(**vars(args))
 
-    with open(f'{out_dir}/{company}-firstl.txt', 'w', encoding='utf-8') as outfile:
-        write_lines(employees, 'first_l', domain, outfile)
+    print(f"[*] Trying to get company info for '{company}'...")
+    company_id, staff_count = get_company_info(company, session)
 
-    with open(f'{out_dir}/{company}-first.last.txt', 'w', encoding='utf-8') as outfile:
-        write_lines(employees, 'first_dot_last', domain, outfile)
+    print("[*] Calculating inner and outer loops...")
+    company_args.depth, company_args.geoblast = set_inner_loops(staff_count, company_args)
+    outer_loops = set_outer_loops(company_args)
 
-    with open(f'{out_dir}/{company}-first.txt', 'w', encoding='utf-8') as outfile:
-        write_lines(employees, 'first', domain, outfile)
+    print("[*] Starting search.... Press Ctrl-C to break and write files early.\n")
+    employees = do_loops(session, company_id, outer_loops, company_args)
 
-    with open(f'{out_dir}/{company}-lastf.txt', 'w', encoding='utf-8') as outfile:
-        write_lines(employees, 'last_f', domain, outfile)
+    print(f"\n[*] Fetching full profile details for {len(employees)} employees"
+          " (one request per profile, this is the slow part)...")
+    employees = enrich_employees(session, employees, args.sleep)
+
+    write_files(company, employees, args.output)
+
+    return len(employees)
 
 
 def main():
@@ -744,24 +771,40 @@ def main():
         urllib3.disable_warnings(category=urllib3.exceptions.InsecureRequestWarning)
         session.proxies.update(args.proxy_dict)
 
-    # Get basic company info
-    print("[*] Trying to get company info...")
-    company_id, staff_count = get_company_info(args.company, session)
+    # Process each company in the list. A failure on one company (bad name,
+    # unexpected HTTP response, etc.) is logged and we move on to the next
+    # one instead of aborting the whole run.
+    total = len(args.companies)
+    succeeded = []
+    failed = []
 
-    # Define inner and outer loops
-    print("[*] Calculating inner and outer loops...")
-    args.depth, args.geoblast = set_inner_loops(staff_count, args)
-    outer_loops = set_outer_loops(args)
+    for index, company in enumerate(args.companies, start=1):
+        print(f"\n{'=' * 60}")
+        print(f"[*] [{index}/{total}] Processing company: {company}")
+        print(f"{'=' * 60}\n")
 
-    # Do the actual searching
-    print("[*] Starting search.... Press Ctrl-C to break and write files early.\n")
-    employees = do_loops(session, company_id, outer_loops, args)
+        try:
+            employee_count = process_company(company, session, args)
+        except CompanyLookupError as exc:
+            print(f"[!] Skipping '{company}': {exc}")
+            failed.append(company)
+            continue
+        except KeyboardInterrupt:
+            print("\n\n[!] Caught Ctrl-C. Stopping before remaining companies are processed.")
+            break
 
-    # Write the data to some files.
-    write_files(args.company, args.domain, employees, args.output)
+        succeeded.append((company, employee_count))
 
-    # Time to get hacking.
-    print(f"\n\n[*] All done! Check out your lovely new files in {args.output}")
+    # Print a final summary of the whole run.
+    print(f"\n{'=' * 60}")
+    print("[*] Run summary")
+    print(f"{'=' * 60}")
+    for company, employee_count in succeeded:
+        print(f"    [OK]   {company}: {employee_count} employees")
+    for company in failed:
+        print(f"    [FAIL] {company}")
+
+    print(f"\n[*] All done! Check out your lovely new files in {args.output}")
 
 
 if __name__ == "__main__":
