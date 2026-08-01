@@ -2,6 +2,8 @@
 li2u-output
 .vscode
 geckodriver.log
+debug_profile.py
+*.pdf
 
 # MacOS
 .DS_Store
